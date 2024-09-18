@@ -1,0 +1,119 @@
+---
+title: "Global Baseline Estimate"
+author: "Nwe Oo Mon (Nina)"
+date: "2024-09-16"
+output: html_document
+---
+
+# Creating MySQL database
+#### Separate tables namely critics, movies, and movie_ratings were created and the data was loaded from csv files. The sql codes can be check through the link [Global_baseline_estimate](https://github.com/Nweoomon/Global_baseline_estimate/blob/main/movies_rating_2.sql).
+
+# Loading the information from the SQL database into an R dataframe
+
+#### Installing and Loading Required Packages
+```{r setup}
+if (!requireNamespace("DBI", quietly = TRUE)) install.packages("DBI")
+if (!requireNamespace("RMariaDB", quietly = TRUE)) install.packages("RMariaDB")
+if (!requireNamespace("dplyr", quietly = TRUE)) install.packages("dplyr")
+
+library(DBI)
+library(RMariaDB)
+library(dplyr)
+
+```
+
+#### Connecting to the MySQL Database and Loading Data
+
+```{r connect-to-mysql, echo=TRUE, message=FALSE, warning=FALSE}
+
+con <- dbConnect(
+  RMariaDB::MariaDB(),
+  user = 'root',               
+  password = Sys.getenv("MYSQL_PWD"),    
+  dbname = 'movies_rating2',     
+  host = 'localhost',           
+  port = 3306                   
+)
+
+# Check if the connection is successful
+if (!is.null(con)) {
+  print("Connected successfully!")
+} else {
+  print("Connection failed.")
+}
+
+# Execute the SQL query and fetch the results into an R data frame
+query <- "SELECT Critics.CriticName, Movies.MovieName, Ratings.Rating
+          FROM Ratings
+          JOIN Critics ON Ratings.CriticID = Critics.CriticID
+          JOIN Movies ON Ratings.MovieID = Movies.MovieID;"
+
+# Fetch the data
+result <- dbGetQuery(con, query)
+
+# Display the results
+glimpse (result)
+
+# Close the database connection
+dbDisconnect(con)
+```
+#### Global Baseline Estimate Calculation
+
+```{r GBE}
+
+# Calculating the mean movie rating
+mean_movie_rating <- mean(result$Rating, na.rm = TRUE)
+
+# Calculate movie average ratings
+movie_avg <- result %>%
+  group_by(MovieName) %>%
+  summarize(movie_avg = mean(Rating, na.rm = TRUE)) %>%
+  ungroup()
+
+# Calculate user average ratings
+user_avg <- result %>%
+  group_by(CriticName) %>%
+  summarize(user_avg = mean(Rating, na.rm = TRUE)) %>%
+  ungroup()
+
+# Calculate movie rating relative to average
+movie_avg_relative <- movie_avg %>%
+  mutate(movie_avg_relative = movie_avg - mean_movie_rating)
+
+# Calculate user rating relative to average
+user_avg_relative <- user_avg %>%
+  mutate(user_avg_relative = user_avg - mean_movie_rating)
+
+# Merge these data back into the original data frame
+result <- result %>%
+  left_join(movie_avg_relative, by = "MovieName") %>%
+  left_join(user_avg_relative, by = "CriticName")
+
+# Ensure that all necessary columns are numeric
+result <- result %>%
+  mutate(
+    movie_avg = as.numeric(movie_avg),
+    user_avg = as.numeric(user_avg),
+    movie_avg_relative = as.numeric(movie_avg - mean_movie_rating),
+    user_avg_relative = as.numeric(user_avg - mean_movie_rating)
+  )
+
+# Calculate the global baseline estimate for each combination
+result <- result %>%
+  mutate(Global_Baseline_Estimate = mean_movie_rating + movie_avg_relative + user_avg_relative)
+
+glimpse (result)
+
+# Filter to find Param's predicted rating for Pitch Perfect 2
+param_pitch_perfect2 <- result %>%
+  filter(CriticName == "Param\r" & MovieName == "PitchPerfect2\r")
+
+# Print the result for Param's predicted rating for Pitch Perfect 2
+print(param_pitch_perfect2)
+
+```
+
+
+
+
+
